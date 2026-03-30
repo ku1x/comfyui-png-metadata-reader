@@ -2,40 +2,86 @@
 
 A custom ComfyUI node that reads and extracts workflow prompts embedded in PNG images.
 
+## ⚠️ Important
+
+**Do NOT use the standard "Load Image" node!** It converts PNG to tensor and loses metadata.
+
+Use **"Load Image (With Metadata)"** node instead.
+
 ## Features
 
-- Extract `prompt` JSON from PNG metadata
-- Extract `workflow` JSON from PNG metadata
-- Parse and pretty-print the workflow data
-- Output as STRING for use in other nodes
+- **Load Image (With Metadata)** - Load PNG and preserve metadata
+- **Read PNG Metadata (Path)** - Read metadata from file path string
+- **Extract Prompt Values** - Parse workflow JSON to extract prompts, seed, steps, cfg, model
 
 ## Installation
 
-1. Copy this folder to your `ComfyUI/custom_nodes/` directory
-2. Restart ComfyUI
+### Method 1: Git Clone
+```bash
+cd ComfyUI/custom_nodes/
+git clone https://github.com/ku1x/comfyui-png-metadata-reader.git
+```
+
+### Method 2: ComfyUI Manager
+Search for "PNG Metadata Reader" and install.
 
 ## Usage
 
-1. Add a "Load Image" node and load a ComfyUI-generated PNG
-2. Add "Read PNG Workflow Prompt" node (under "Image Utilities")
-3. Connect the IMAGE output to the node's input
-4. Connect the STRING output to a "Show Text" node or use in other nodes
+### Basic Workflow
+```
+[Load Image (With Metadata)]
+         │
+         ├── IMAGE → (use in other nodes)
+         │
+         ├── workflow_prompt ──→ [Extract Prompt Values]
+         │                              │
+         │                              ├── positive_prompt
+         │                              ├── negative_prompt
+         │                              ├── seed
+         │                              ├── steps
+         │                              ├── cfg
+         │                              └── model_name
+         │
+         ├── workflow_ui
+         │
+         └── raw_metadata
+```
 
-## Output
+### Nodes
 
-The node outputs the workflow JSON as a formatted string, containing:
-- Node connections
-- Parameter values
-- Model names
-- Seeds
-- Prompts (positive/negative)
-- And more...
+#### Load Image (With Metadata)
+- **Input**: File selector (like standard Load Image)
+- **Output**: 
+  - `image` - IMAGE tensor (same as standard Load Image)
+  - `workflow_prompt` - The workflow JSON
+  - `workflow_ui` - The UI layout JSON
+  - `raw_metadata` - All metadata as JSON string
+
+#### Extract Prompt Values
+- **Input**: `workflow_prompt` string
+- **Output**:
+  - `positive_prompt` - Positive prompt text
+  - `negative_prompt` - Negative prompt text
+  - `seed` - Seed value
+  - `steps` - Sampling steps
+  - `cfg` - CFG scale
+  - `model_name` - Model/checkpoint name
 
 ## Technical Details
 
 ComfyUI stores workflow data in PNG `tEXt` chunks:
 - `prompt` - The workflow JSON (node definitions and connections)
 - `workflow` - The UI layout and positions
+
+Standard "Load Image" node converts PNG to tensor, which loses all metadata.
+This node preserves the metadata by reading it before conversion.
+
+## Supported Nodes
+
+The extractor recognizes:
+- **Prompts**: CLIPTextEncode, PrimitiveString, PrimitiveStringMultiline
+- **Samplers**: KSampler, KSamplerAdvanced
+- **Models**: CheckpointLoader, UNETLoader
 
 ## License
 
