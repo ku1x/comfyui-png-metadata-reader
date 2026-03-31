@@ -2,12 +2,13 @@
 
 A custom ComfyUI node that reads and extracts workflow prompts embedded in PNG images.
 
-## ✨ New: Batch Folder Processing!
+## ✨ New: External Input Support!
 
-Now supports batch processing images from a folder, inspired by [ShammiG/ComfyUI-Simple_Readable_Metadata-SG](https://github.com/ShammiG/ComfyUI-Simple_Readable_Metadata-SG).
+Based on [ShammiG/ComfyUI-Simple_Readable_Metadata-SG](https://github.com/ShammiG/ComfyUI-Simple_Readable_Metadata-SG), modified to support **external file path input** instead of only internal file selector.
 
 ## Features
 
+- **Simple Readable Metadata (External Path)-SG** - Accept file path string from other nodes
 - **Batch Read Metadata (Folder)** - Process all images in a folder at once
 - **Batch Metadata to Prompt List** - Extract all prompts from batch results
 - **Load Image (With Metadata)** - Load single image and preserve metadata
@@ -26,44 +27,41 @@ Search for "PNG Metadata Reader" and install.
 
 ## Usage
 
-### Batch Processing (New!)
+### External Path Input (New!)
+
+Now you can connect a file path string from any node:
+
+```
+[Some Node with file path output]
+         │
+         └── STRING (file path) ──→ [Simple Readable Metadata (External Path)-SG]
+                                              │
+                                              ├── Simple_Readable_Metadata
+                                              ├── image
+                                              ├── Positive_Prompt
+                                              ├── Negative_Prompt
+                                              ├── seed
+                                              └── file_name_text
+```
+
+### Batch Processing
 
 ```
 [Batch Read Metadata (Folder)]
          │
          ├── folder_path: "/path/to/images"
          ├── file_pattern: "*.png"
-         ├── recursive: True/False
          │
-         ├── all_metadata ──→ [Batch Metadata to Prompt List]
-         │                              │
-         │                              ├── prompts_text
-         │                              ├── prompts_json
-         │                              └── count
-         │
-         ├── summary (human-readable summary)
-         │
-         └── file_count
-```
-
-### Single Image
-
-```
-[Load Image (With Metadata)]
-         │
-         ├── IMAGE → (use in other nodes)
-         │
-         └── workflow_prompt ──→ [Extract Prompt Values]
-                                        │
-                                        ├── positive_prompt
-                                        ├── negative_prompt  
-                                        ├── seed
-                                        ├── steps
-                                        ├── cfg
-                                        └── model_name
+         └── all_metadata ──→ [Batch Metadata to Prompt List]
 ```
 
 ## Nodes
+
+### Simple Readable Metadata (External Path)-SG
+Modified from ShammiG's original node to accept external file path input.
+
+- **Input**: `file_path` (STRING) - path to image file
+- **Output**: Same as original - metadata, image, mask, prompts, seed, etc.
 
 ### Batch Read Metadata (Folder)
 - **Inputs**:
@@ -75,46 +73,15 @@ Search for "PNG Metadata Reader" and install.
   - `summary` - Human-readable summary
   - `file_count` - Number of files processed
 
-### Batch Metadata to Prompt List
-- **Inputs**:
-  - `all_metadata` - Output from Batch Read Metadata
-  - `output_type` - "positive", "negative", or "both"
-- **Outputs**:
-  - `prompts_text` - Plain text list of prompts
-  - `prompts_json` - JSON array of prompts
-  - `count` - Number of prompts extracted
-
-### Load Image (With Metadata)
-- **Input**: File selector (like standard Load Image)
-- **Output**: 
-  - `image` - IMAGE tensor
-  - `workflow_prompt` - The workflow JSON
-  - `workflow_ui` - The UI layout JSON
-  - `raw_metadata` - All metadata as JSON string
-
-### Extract Prompt Values
-- **Input**: `workflow_prompt` string
-- **Output**:
-  - `positive_prompt` - Positive prompt text
-  - `negative_prompt` - Negative prompt text
-  - `seed` - Seed value
-  - `steps` - Sampling steps
-  - `cfg` - CFG scale
-  - `model_name` - Model/checkpoint name
-
 ## Supported Formats
 
 - **Images**: PNG, WEBP
 - **Metadata**: ComfyUI, ForgeUI, Automatic1111
 
-## Technical Details
+## Credits
 
-ComfyUI stores workflow data in PNG `tEXt` chunks:
-- `prompt` - The workflow JSON (node definitions and connections)
-- `workflow` - The UI layout and positions
-
-Standard "Load Image" node converts PNG to tensor, which loses all metadata.
-These nodes preserve the metadata by reading it before conversion.
+- Original [Simple Readable Metadata-SG](https://github.com/ShammiG/ComfyUI-Simple_Readable_Metadata-SG) by [ShammiG](https://github.com/ShammiG)
+- Modified to support external file path input
 
 ## License
 

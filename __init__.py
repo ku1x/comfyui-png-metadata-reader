@@ -6,6 +6,7 @@ Features:
 - Batch process images from folder
 - Extract prompts, seed, steps, cfg, model
 - Support PNG, WEBP formats
+- External input support (file path string)
 """
 
 import json
@@ -15,6 +16,9 @@ from PIL import Image
 import numpy as np
 import torch
 import folder_paths
+
+# Import the modified Simple Readable Metadata node
+from .Simple_Readable_Metadata_External_Input_SG import SimpleReadableMetadataFromPath
 
 
 class BatchMetadataReader:
@@ -45,13 +49,9 @@ class BatchMetadataReader:
     OUTPUT_NODE = True
 
     def read_batch(self, folder_path, file_pattern="*.png", recursive=False):
-        """
-        Read metadata from all matching images in a folder.
-        """
         if not folder_path or not os.path.isdir(folder_path):
             return (f"Error: Folder not found: {folder_path}", "", 0)
 
-        # Find all matching files
         if recursive:
             files = glob.glob(os.path.join(folder_path, "**", file_pattern), recursive=True)
         else:
@@ -82,13 +82,10 @@ class BatchMetadataReader:
                     metadata = img.info
                     file_data["metadata"] = dict(metadata)
 
-                    # Parse prompt JSON
                     if "prompt" in metadata:
                         try:
                             prompt_data = json.loads(metadata["prompt"])
                             file_data["prompt"] = prompt_data
-
-                            # Extract values
                             extracted = self._extract_values(prompt_data)
                             file_data["extracted"] = extracted
 
@@ -107,23 +104,19 @@ class BatchMetadataReader:
                             if extracted.get("loras"):
                                 for lora in extracted["loras"]:
                                     loras.add(lora)
-
                         except json.JSONDecodeError:
                             pass
 
-                    # Parse workflow JSON
                     if "workflow" in metadata:
                         try:
                             file_data["workflow"] = json.loads(metadata["workflow"])
                         except json.JSONDecodeError:
                             pass
-
             except Exception as e:
                 file_data["error"] = str(e)
 
             all_metadata[filename] = file_data
 
-        # Build summary
         summary_lines.append(f"=== Batch Metadata Summary ===")
         summary_lines.append(f"Folder: {folder_path}")
         summary_lines.append(f"Files processed: {len(files)}")
@@ -149,7 +142,6 @@ class BatchMetadataReader:
         )
 
     def _extract_values(self, workflow):
-        """Extract specific values from workflow JSON."""
         result = {
             "positive_prompt": "",
             "negative_prompt": "",
@@ -159,19 +151,16 @@ class BatchMetadataReader:
             "model_name": "",
             "loras": []
         }
-
         try:
             for node_id, node_data in workflow.items():
                 class_type = node_data.get("class_type", "")
                 inputs = node_data.get("inputs", {})
 
-                # KSampler
                 if "KSampler" in class_type:
                     result["seed"] = inputs.get("seed", inputs.get("noise_seed", 0))
                     result["steps"] = inputs.get("steps", 0)
                     result["cfg"] = inputs.get("cfg", 0.0)
 
-                # CLIPTextEncode
                 if class_type == "CLIPTextEncode":
                     text = inputs.get("text", "")
                     if text:
@@ -180,7 +169,6 @@ class BatchMetadataReader:
                         elif text != result["positive_prompt"]:
                             result["negative_prompt"] = text
 
-                # PrimitiveString
                 if "PrimitiveString" in class_type:
                     text = inputs.get("value", inputs.get("text", ""))
                     if text and len(text) > 10:
@@ -189,30 +177,21 @@ class BatchMetadataReader:
                         elif text != result["positive_prompt"]:
                             result["negative_prompt"] = text
 
-                # Model loaders
                 if "CheckpointLoader" in class_type:
                     result["model_name"] = inputs.get("ckpt_name", "")
                 elif "UNETLoader" in class_type:
                     result["model_name"] = inputs.get("unet_name", "")
 
-                # LoRA
                 if "LoraLoader" in class_type:
                     lora_name = inputs.get("lora_name", inputs.get("lora", ""))
                     if lora_name:
                         result["loras"].append(lora_name)
-
         except Exception:
             pass
-
         return result
 
 
 class BatchMetadataToPromptList:
-    """
-    Convert batch metadata to a list of prompts.
-    Useful for extracting all positive prompts from a folder.
-    """
-
     CATEGORY = "Image Utilities"
 
     def __init__(self):
@@ -233,16 +212,12 @@ class BatchMetadataToPromptList:
     OUTPUT_NODE = True
 
     def extract_prompts(self, all_metadata, output_type="positive"):
-        """
-        Extract prompts from batch metadata.
-        """
         try:
             data = json.loads(all_metadata)
         except json.JSONDecodeError:
             return ("Invalid JSON", "{}", 0)
 
         prompts = []
-
         for filename, file_data in data.items():
             if "extracted" in file_data:
                 extracted = file_data["extracted"]
@@ -262,7 +237,6 @@ class BatchMetadataToPromptList:
                     if entry.get("positive") or entry.get("negative"):
                         prompts.append(entry)
 
-        # Format as text
         lines = []
         for p in prompts:
             lines.append(f"[{p['file']}]")
@@ -283,10 +257,6 @@ class BatchMetadataToPromptList:
 
 
 class LoadImageWithMetadata:
-    """
-    Load single image AND preserve its metadata.
-    """
-
     CATEGORY = "Image Utilities"
 
     def __init__(self):
@@ -336,7 +306,6 @@ class LoadImageWithMetadata:
                     workflow_ui = json.dumps(parsed, indent=2)
                 except json.JSONDecodeError:
                     workflow_ui = metadata["workflow"]
-
         except Exception as e:
             workflow_prompt = f"Error reading metadata: {e}"
 
@@ -344,10 +313,6 @@ class LoadImageWithMetadata:
 
 
 class ExtractPromptValues:
-    """
-    Extract specific values from workflow prompt JSON.
-    """
-
     CATEGORY = "Image Utilities"
 
     def __init__(self):
@@ -376,7 +341,6 @@ class ExtractPromptValues:
 
         try:
             workflow = json.loads(workflow_prompt)
-
             for node_id, node_data in workflow.items():
                 class_type = node_data.get("class_type", "")
                 inputs = node_data.get("inputs", {})
@@ -406,7 +370,6 @@ class ExtractPromptValues:
                     model_name = inputs.get("ckpt_name", "")
                 elif "UNETLoader" in class_type:
                     model_name = inputs.get("unet_name", "")
-
         except json.JSONDecodeError:
             pass
         except Exception as e:
@@ -421,6 +384,7 @@ NODE_CLASS_MAPPINGS = {
     "BatchMetadataToPromptList": BatchMetadataToPromptList,
     "LoadImageWithMetadata": LoadImageWithMetadata,
     "ExtractPromptValues": ExtractPromptValues,
+    "SimpleReadableMetadataFromPath": SimpleReadableMetadataFromPath,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -428,4 +392,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "BatchMetadataToPromptList": "Batch Metadata to Prompt List",
     "LoadImageWithMetadata": "Load Image (With Metadata)",
     "ExtractPromptValues": "Extract Prompt Values",
+    "SimpleReadableMetadataFromPath": "Simple Readable Metadata (External Path)-SG",
 }
