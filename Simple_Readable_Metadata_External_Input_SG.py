@@ -44,9 +44,11 @@ class SimpleReadableMetadataFromImage:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "file_path": ("STRING", {"default": "", "multiline": False}),
                 "emoji_in_readable_text": ("BOOLEAN", {"default": True}),
                 "show_info": (["both", "properties", "metadata", "none"], {"default": "both"}),
+            },
+            "optional": {
+                "file_path": ("STRING", {"default": "", "multiline": False, "forceInput": True}),
             },
         }
 
@@ -54,6 +56,14 @@ class SimpleReadableMetadataFromImage:
     RETURN_NAMES = ("Simple_Readable_Metadata", "image", "mask", "metadata_raw", "Positive_Prompt", "Negative_Prompt", "seed", "file_name_text")
     FUNCTION = "read_from_image"
     OUTPUT_NODE = True
+
+    # Allow STRING input to accept list from KJ nodes
+    @classmethod
+    def VALIDATE_INPUTS(cls, file_path, **kwargs):
+        # Accept both string and list
+        if isinstance(file_path, (str, list)):
+            return True
+        return f"file_path must be string or list, got {type(file_path)}"
 
     def resolve_file_path(self, file_path):
         """
@@ -276,15 +286,32 @@ class SimpleReadableMetadataFromImage:
             print(f"Error extracting generation parameters: {e}")
         return params
 
-    def read_from_image(self, image, file_path, emoji_in_readable_text=True, show_info="both"):
+    def read_from_image(self, image, emoji_in_readable_text=True, show_info="both", file_path=""):
         """
         Read metadata from file_path, use IMAGE for visual output.
+        
+        file_path can be:
+        - A single string path
+        - A list of paths (from KJ nodes) - will use the first one
         """
         # Debug: print inputs
         print(f"[SimpleReadableMetadata] === START ===")
         print(f"[SimpleReadableMetadata] file_path input: '{file_path}'")
         print(f"[SimpleReadableMetadata] file_path type: {type(file_path)}")
         print(f"[SimpleReadableMetadata] image shape: {image.shape if hasattr(image, 'shape') else 'no shape'}")
+        
+        # Handle list input from KJ nodes
+        if isinstance(file_path, list):
+            print(f"[SimpleReadableMetadata] file_path is a list with {len(file_path)} items")
+            if len(file_path) > 0:
+                # Get the first path (matching the first image in the batch)
+                actual_path = file_path[0]
+                print(f"[SimpleReadableMetadata] Using first path: '{actual_path}'")
+                file_path = actual_path
+            else:
+                file_path = ""
+        elif file_path is None:
+            file_path = ""
         
         try:
             # Default values
