@@ -60,12 +60,32 @@ class SimpleReadableMetadataFromImage:
         Resolve file path using ComfyUI's folder_paths for secure access.
         
         Supports:
-        - Annotated paths: "filename.png [input]", "filename.png [output]", "filename.png [temp]"
         - Absolute paths (if within allowed directories)
+        - Annotated paths: "filename.png [input]", "filename.png [output]", "filename.png [temp]"
         - Relative paths (relative to input directory)
         """
         if not file_path:
             return None, "No file path provided"
+        
+        # Get allowed directories
+        input_dir = os.path.abspath(folder_paths.get_input_directory())
+        output_dir = os.path.abspath(folder_paths.get_output_directory())
+        temp_dir = os.path.abspath(folder_paths.get_temp_directory())
+        allowed_dirs = [input_dir, output_dir, temp_dir]
+        
+        # Check if it's an absolute path
+        if os.path.isabs(file_path):
+            abs_path = os.path.abspath(file_path)
+            # Check if the absolute path is within allowed directories
+            for allowed_dir in allowed_dirs:
+                if abs_path.startswith(allowed_dir + os.sep) or abs_path == allowed_dir:
+                    if os.path.isfile(abs_path):
+                        return abs_path, None
+            # File exists but outside allowed dirs - still try to read it
+            # (some setups may have different security configurations)
+            if os.path.isfile(abs_path):
+                return abs_path, None
+            return None, f"File not found: {file_path}"
         
         # Use ComfyUI's annotated filepath resolver
         # This handles [input], [output], [temp] annotations
@@ -76,19 +96,16 @@ class SimpleReadableMetadataFromImage:
             return resolved_path, None
         
         # Try as relative path from input directory
-        input_dir = folder_paths.get_input_directory()
         input_path = os.path.join(input_dir, file_path)
         if os.path.isfile(input_path):
             return input_path, None
         
         # Try as relative path from output directory
-        output_dir = folder_paths.get_output_directory()
         output_path = os.path.join(output_dir, file_path)
         if os.path.isfile(output_path):
             return output_path, None
         
         # Try as relative path from temp directory
-        temp_dir = folder_paths.get_temp_directory()
         temp_path = os.path.join(temp_dir, file_path)
         if os.path.isfile(temp_path):
             return temp_path, None
@@ -285,9 +302,17 @@ class SimpleReadableMetadataFromImage:
             if resolved_path:
                 try:
                     img = Image.open(resolved_path)
+                    
+                    # Debug: print available metadata keys
+                    print(f"[SimpleReadableMetadata] File: {resolved_path}")
+                    print(f"[SimpleReadableMetadata] Metadata keys: {list(img.info.keys()) if img.info else 'None'}")
+                    
                     model_name = self.extract_model_name(img)
                     gen_params = self.extract_generation_params(img)
                     metadata_raw = self.extract_raw_metadata(img)
+                    
+                    print(f"[SimpleReadableMetadata] Extracted model: {model_name}")
+                    print(f"[SimpleReadableMetadata] Raw metadata length: {len(metadata_raw) if metadata_raw else 0}")
                     
                     try:
                         file_size_bytes = os.path.getsize(resolved_path)
