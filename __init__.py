@@ -42,8 +42,8 @@ class BatchMetadataReader:
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "INT")
-    RETURN_NAMES = ("all_metadata", "summary", "file_count")
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "INT")
+    RETURN_NAMES = ("Simple_Readable_Metadata", "all_metadata_json", "prompts_list", "file_count")
     FUNCTION = "read_batch"
     OUTPUT_NODE = True
 
@@ -134,11 +134,81 @@ class BatchMetadataReader:
             summary_lines.append(f"  {p['text'][:200]}..." if len(p['text']) > 200 else f"  {p['text']}")
             summary_lines.append(f"")
 
+        # Build Simple_Readable_Metadata output (like original SG)
+        simple_readable = self._build_simple_readable(positive_prompts, negative_prompts, models, loras, len(files))
+        
+        # Build prompts list
+        prompts_list = self._build_prompts_list(positive_prompts, negative_prompts)
+
         return (
+            simple_readable,
             json.dumps(all_metadata, indent=2, ensure_ascii=False),
-            "\n".join(summary_lines),
+            prompts_list,
             len(files)
         )
+
+    def _build_simple_readable(self, positive_prompts, negative_prompts, models, loras, file_count):
+        """Build Simple_Readable_Metadata output like original Simple Readable Metadata-SG."""
+        lines = []
+        lines.append("=" * 60)
+        lines.append("BATCH SIMPLE READABLE METADATA")
+        lines.append("=" * 60)
+        lines.append("")
+        lines.append(f"📊 Total images processed: {file_count}")
+        lines.append("")
+        
+        # Models section
+        if models:
+            lines.append("🧠 MODELS DETECTED:")
+            for m in sorted(models):
+                lines.append(f"  • {m}")
+            lines.append("")
+        
+        # LoRAs section
+        if loras:
+            lines.append("🎨 LORAS DETECTED:")
+            for l in sorted(loras):
+                lines.append(f"  • {l}")
+            lines.append("")
+        
+        # Prompts section
+        lines.append("=" * 60)
+        lines.append("📝 ALL PROMPTS DETECTED IN WORKFLOW")
+        lines.append("=" * 60)
+        lines.append("")
+        
+        for i, p in enumerate(positive_prompts, 1):
+            lines.append(f"─── IMAGE {i}: {p['file']} ───")
+            lines.append("")
+            lines.append("POSITIVE PROMPT:")
+            # Wrap long prompts
+            text = p['text']
+            for j in range(0, len(text), 80):
+                lines.append(f"  {text[j:j+80]}")
+            lines.append("")
+        
+        if negative_prompts:
+            lines.append("=" * 60)
+            lines.append("NEGATIVE PROMPTS")
+            lines.append("=" * 60)
+            lines.append("")
+            for n in negative_prompts:
+                lines.append(f"[{n['file']}]")
+                text = n['text']
+                for j in range(0, len(text), 80):
+                    lines.append(f"  {text[j:j+80]}")
+                lines.append("")
+        
+        return "\n".join(lines)
+
+    def _build_prompts_list(self, positive_prompts, negative_prompts):
+        """Build simple list of prompts."""
+        lines = []
+        for p in positive_prompts:
+            lines.append(f"[{p['file']}]")
+            lines.append(p['text'])
+            lines.append("")
+        return "\n".join(lines)
 
     def _extract_values(self, workflow):
         result = {
