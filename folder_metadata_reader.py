@@ -44,7 +44,10 @@ class BatchSimpleReadableMetadata:
         
         return {
             "required": {
-                "folder_name": (sorted(folders) if folders else ["[no folders]"],),
+                "folder_name": (sorted(folders) if folders else ["[no folders - enter path below]"],),
+            },
+            "optional": {
+                "custom_folder_path": ("STRING", {"default": "", "multiline": False}),
                 "file_pattern": ("STRING", {"default": "*.png"}),
             },
         }
@@ -54,17 +57,22 @@ class BatchSimpleReadableMetadata:
     FUNCTION = "read_folder"
     OUTPUT_NODE = True
 
-    def read_folder(self, folder_name, file_pattern="*.png"):
+    def read_folder(self, folder_name, custom_folder_path="", file_pattern="*.png"):
         """Read metadata from all images in the selected folder."""
         
         import glob
         
-        # Get folder path
-        input_dir = folder_paths.get_input_directory()
-        folder_path = os.path.join(input_dir, folder_name)
+        # Determine folder path
+        if custom_folder_path and os.path.isdir(custom_folder_path):
+            folder_path = custom_folder_path
+        else:
+            input_dir = folder_paths.get_input_directory()
+            folder_path = os.path.join(input_dir, folder_name)
+        
+        print(f"[BatchSimpleReadableMetadata] Folder path: {folder_path}")
         
         if not os.path.isdir(folder_path):
-            return (f"Folder not found: {folder_path}", "", "", 0)
+            return (f"Folder not found: {folder_path}\n\nTip: Put images in ComfyUI/input/your_folder/ or enter full path in custom_folder_path", "", "", 0)
         
         # Find all matching files
         files = glob.glob(os.path.join(folder_path, file_pattern))
