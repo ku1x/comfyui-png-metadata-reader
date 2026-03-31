@@ -280,6 +280,12 @@ class SimpleReadableMetadataFromImage:
         """
         Read metadata from file_path, use IMAGE for visual output.
         """
+        # Debug: print inputs
+        print(f"[SimpleReadableMetadata] === START ===")
+        print(f"[SimpleReadableMetadata] file_path input: '{file_path}'")
+        print(f"[SimpleReadableMetadata] file_path type: {type(file_path)}")
+        print(f"[SimpleReadableMetadata] image shape: {image.shape if hasattr(image, 'shape') else 'no shape'}")
+        
         try:
             # Default values
             model_name = "N/A"
@@ -298,20 +304,30 @@ class SimpleReadableMetadataFromImage:
             
             # Resolve file path using ComfyUI's secure path resolver
             resolved_path, error = self.resolve_file_path(file_path)
+            print(f"[SimpleReadableMetadata] resolved_path: '{resolved_path}'")
+            print(f"[SimpleReadableMetadata] error: '{error}'")
             
             if resolved_path:
                 try:
+                    print(f"[SimpleReadableMetadata] Opening file: {resolved_path}")
                     img = Image.open(resolved_path)
                     
                     # Debug: print available metadata keys
-                    print(f"[SimpleReadableMetadata] File: {resolved_path}")
+                    print(f"[SimpleReadableMetadata] Image opened successfully")
+                    print(f"[SimpleReadableMetadata] Image format: {img.format}")
+                    print(f"[SimpleReadableMetadata] Image mode: {img.mode}")
                     print(f"[SimpleReadableMetadata] Metadata keys: {list(img.info.keys()) if img.info else 'None'}")
+                    if img.info:
+                        for key, value in img.info.items():
+                            val_preview = str(value)[:100] + "..." if len(str(value)) > 100 else str(value)
+                            print(f"[SimpleReadableMetadata]   {key}: {val_preview}")
                     
                     model_name = self.extract_model_name(img)
                     gen_params = self.extract_generation_params(img)
                     metadata_raw = self.extract_raw_metadata(img)
                     
                     print(f"[SimpleReadableMetadata] Extracted model: {model_name}")
+                    print(f"[SimpleReadableMetadata] Gen params: {gen_params}")
                     print(f"[SimpleReadableMetadata] Raw metadata length: {len(metadata_raw) if metadata_raw else 0}")
                     
                     try:
@@ -335,6 +351,7 @@ class SimpleReadableMetadataFromImage:
                 except Exception as e:
                     metadata_raw = f"Error reading file: {e}"
             else:
+                print(f"[SimpleReadableMetadata] No resolved_path, error: {error}")
                 metadata_raw = error
             
             # Build display info
