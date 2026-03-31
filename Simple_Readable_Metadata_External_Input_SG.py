@@ -8,6 +8,7 @@ Changes:
 - SimpleReadableMetadataFromImage: Accept IMAGE tensor + file_path string
   - IMAGE input for visual preview (from KJ nodes, etc.)
   - file_path input for reading actual metadata from file
+  - Uses folder_paths for secure file access
 """
 
 import torch
@@ -29,6 +30,11 @@ class SimpleReadableMetadataFromImage:
     2. Pass the file path to read actual metadata
     
     The IMAGE input provides visual preview, file_path provides metadata.
+    
+    File path can be:
+    - Absolute path (if within allowed directories)
+    - Relative path (relative to ComfyUI base directory)
+    - Annotated path: "filename.png [input]", "filename.png [output]", "filename.png [temp]"
     """
 
     CATEGORY = "image/analysis"
@@ -48,6 +54,46 @@ class SimpleReadableMetadataFromImage:
     RETURN_NAMES = ("Simple_Readable_Metadata", "image", "mask", "metadata_raw", "Positive_Prompt", "Negative_Prompt", "seed", "file_name_text")
     FUNCTION = "read_from_image"
     OUTPUT_NODE = True
+
+    def resolve_file_path(self, file_path):
+        """
+        Resolve file path using ComfyUI's folder_paths for secure access.
+        
+        Supports:
+        - Annotated paths: "filename.png [input]", "filename.png [output]", "filename.png [temp]"
+        - Absolute paths (if within allowed directories)
+        - Relative paths (relative to input directory)
+        """
+        if not file_path:
+            return None, "No file path provided"
+        
+        # Use ComfyUI's annotated filepath resolver
+        # This handles [input], [output], [temp] annotations
+        resolved_path = folder_paths.get_annotated_filepath(file_path)
+        
+        # Check if file exists
+        if os.path.isfile(resolved_path):
+            return resolved_path, None
+        
+        # Try as relative path from input directory
+        input_dir = folder_paths.get_input_directory()
+        input_path = os.path.join(input_dir, file_path)
+        if os.path.isfile(input_path):
+            return input_path, None
+        
+        # Try as relative path from output directory
+        output_dir = folder_paths.get_output_directory()
+        output_path = os.path.join(output_dir, file_path)
+        if os.path.isfile(output_path):
+            return output_path, None
+        
+        # Try as relative path from temp directory
+        temp_dir = folder_paths.get_temp_directory()
+        temp_path = os.path.join(temp_dir, file_path)
+        if os.path.isfile(temp_path):
+            return temp_path, None
+        
+        return None, f"File not found: {file_path}"
 
     def is_node_reference(self, value):
         try:
@@ -216,10 +262,6 @@ class SimpleReadableMetadataFromImage:
     def read_from_image(self, image, file_path, emoji_in_readable_text=True, show_info="both"):
         """
         Read metadata from file_path, use IMAGE for visual output.
-        
-        Args:
-            image: IMAGE tensor (from KJ nodes, etc.) - used for visual output
-            file_path: Path to the original file - used for reading metadata
         """
         try:
             # Default values
@@ -237,18 +279,20 @@ class SimpleReadableMetadataFromImage:
             total_pixels = width * height
             resolution_mp = float(total_pixels) / 1_000_000
             
-            # Read metadata from file_path if provided
-            if file_path and os.path.exists(file_path):
+            # Resolve file path using ComfyUI's secure path resolver
+            resolved_path, error = self.resolve_file_path(file_path)
+            
+            if resolved_path:
                 try:
-                    img = Image.open(file_path)
+                    img = Image.open(resolved_path)
                     model_name = self.extract_model_name(img)
                     gen_params = self.extract_generation_params(img)
                     metadata_raw = self.extract_raw_metadata(img)
                     
                     try:
-                        file_size_bytes = os.path.getsize(file_path)
+                        file_size_bytes = os.path.getsize(resolved_path)
                         file_size_mb = float(file_size_bytes) / (1024 * 1024)
-                        file_name_text_without_ext = os.path.splitext(os.path.basename(file_path))[0]
+                        file_name_text_without_ext = os.path.splitext(os.path.basename(resolved_path))[0]
                     except:
                         pass
                         
@@ -265,8 +309,8 @@ class SimpleReadableMetadataFromImage:
                             
                 except Exception as e:
                     metadata_raw = f"Error reading file: {e}"
-            elif file_path:
-                metadata_raw = f"File not found: {file_path}"
+            else:
+                metadata_raw = error
             
             # Build display info
             def gcd(a, b):
@@ -316,7 +360,6 @@ class SimpleReadableMetadataFromImage:
             Simple_Readable_Metadata, _, _ = self.parse_metadata(metadata_raw, emoji_in_readable_text)
             
             # Create mask from image alpha if present
-            # For now, return empty mask
             mask = torch.zeros((height, width), dtype=torch.float32, device="cpu")
             
             return {

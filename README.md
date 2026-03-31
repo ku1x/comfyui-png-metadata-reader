@@ -49,6 +49,20 @@ Connect from **"Load Images From Folder (KJ)"** or similar nodes:
                                         └── file_name_text
 ```
 
+### File Path Format
+
+The `file_path` input supports multiple formats:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| **Annotated** | `image.png [input]` | File in ComfyUI input directory |
+| **Annotated** | `image.png [output]` | File in ComfyUI output directory |
+| **Annotated** | `image.png [temp]` | File in ComfyUI temp directory |
+| **Relative** | `subfolder/image.png` | Relative to input directory |
+| **Filename only** | `image.png` | Just filename, searches input/output/temp |
+
+**Note**: For security, ComfyUI restricts file access to specific directories (input, output, temp). Use the annotated format for best results.
+
 ### Why Two Inputs?
 
 | Input | Purpose |
@@ -95,6 +109,16 @@ Modified from ShammiG's original node to accept external IMAGE input.
 
 - **Images**: PNG, WEBP
 - **Metadata**: ComfyUI, ForgeUI, Automatic1111
+
+## Troubleshooting
+
+### "Permission denied" or "File not found" errors
+
+ComfyUI has security restrictions on file access. Make sure:
+
+1. Use annotated paths: `filename.png [input]` or `filename.png [output]`
+2. Files are in ComfyUI's allowed directories (input, output, temp)
+3. KJ nodes output the file path in the correct format
 
 ## Credits
 
