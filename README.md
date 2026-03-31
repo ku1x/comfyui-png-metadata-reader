@@ -2,13 +2,13 @@
 
 A custom ComfyUI node that reads and extracts workflow prompts embedded in PNG images.
 
-## ✨ New: External Input Support!
+## ✨ External Image Input Support!
 
-Based on [ShammiG/ComfyUI-Simple_Readable_Metadata-SG](https://github.com/ShammiG/ComfyUI-Simple_Readable_Metadata-SG), modified to support **external file path input** instead of only internal file selector.
+Based on [ShammiG/ComfyUI-Simple_Readable_Metadata-SG](https://github.com/ShammiG/ComfyUI-Simple_Readable_Metadata-SG), modified to support **external IMAGE input** from nodes like **"Load Images From Folder (KJ)"**.
 
 ## Features
 
-- **Simple Readable Metadata (External Path)-SG** - Accept file path string from other nodes
+- **Simple Readable Metadata (External Image)-SG** - Accept IMAGE tensor + file_path string
 - **Batch Read Metadata (Folder)** - Process all images in a folder at once
 - **Batch Metadata to Prompt List** - Extract all prompts from batch results
 - **Load Image (With Metadata)** - Load single image and preserve metadata
@@ -27,22 +27,36 @@ Search for "PNG Metadata Reader" and install.
 
 ## Usage
 
-### External Path Input (New!)
+### External Image Input (Recommended)
 
-Now you can connect a file path string from any node:
+Connect from **"Load Images From Folder (KJ)"** or similar nodes:
 
 ```
-[Some Node with file path output]
+[Load Images From Folder (KJ)]
          │
-         └── STRING (file path) ──→ [Simple Readable Metadata (External Path)-SG]
-                                              │
-                                              ├── Simple_Readable_Metadata
-                                              ├── image
-                                              ├── Positive_Prompt
-                                              ├── Negative_Prompt
-                                              ├── seed
-                                              └── file_name_text
+         ├── IMAGE ────────────────────┐
+         │                              │
+         └── file_path (STRING) ────────┤
+                                        │
+                                        ▼
+                    [Simple Readable Metadata (External Image)-SG]
+                                        │
+                                        ├── Simple_Readable_Metadata
+                                        ├── image (visual preview)
+                                        ├── Positive_Prompt
+                                        ├── Negative_Prompt
+                                        ├── seed
+                                        └── file_name_text
 ```
+
+### Why Two Inputs?
+
+| Input | Purpose |
+|-------|---------|
+| `image` (IMAGE) | Visual preview in ComfyUI, passed through from KJ nodes |
+| `file_path` (STRING) | Read actual metadata from the original file |
+
+**Note**: IMAGE tensors lose metadata during conversion. The `file_path` input allows reading metadata from the original file.
 
 ### Batch Processing
 
@@ -57,11 +71,15 @@ Now you can connect a file path string from any node:
 
 ## Nodes
 
-### Simple Readable Metadata (External Path)-SG
-Modified from ShammiG's original node to accept external file path input.
+### Simple Readable Metadata (External Image)-SG
+Modified from ShammiG's original node to accept external IMAGE input.
 
-- **Input**: `file_path` (STRING) - path to image file
-- **Output**: Same as original - metadata, image, mask, prompts, seed, etc.
+- **Inputs**:
+  - `image` (IMAGE) - Image tensor from KJ nodes or similar
+  - `file_path` (STRING) - Path to the original file for metadata reading
+  - `emoji_in_readable_text` (BOOLEAN)
+  - `show_info` (SELECT)
+- **Outputs**: Same as original - metadata, image, mask, prompts, seed, etc.
 
 ### Batch Read Metadata (Folder)
 - **Inputs**:
@@ -81,7 +99,7 @@ Modified from ShammiG's original node to accept external file path input.
 ## Credits
 
 - Original [Simple Readable Metadata-SG](https://github.com/ShammiG/ComfyUI-Simple_Readable_Metadata-SG) by [ShammiG](https://github.com/ShammiG)
-- Modified to support external file path input
+- Modified to support external IMAGE input from KJ nodes
 
 ## License
 

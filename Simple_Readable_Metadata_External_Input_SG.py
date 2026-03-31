@@ -2,11 +2,12 @@
 Modified Simple Readable Metadata-SG with External Input Support
 
 Original by ShammiG: https://github.com/ShammiG/ComfyUI-Simple_Readable_Metadata-SG
-Modified to support external image input (from Upload Image node or file path)
+Modified to support external image input from nodes like "Load Images From Folder (KJ)"
 
 Changes:
-- Added SimpleReadableMetadataFromPath: Accept file path string as input
-- Added SimpleReadableMetadataFromTensor: Accept IMAGE tensor with metadata preservation
+- SimpleReadableMetadataFromImage: Accept IMAGE tensor + file_path string
+  - IMAGE input for visual preview (from KJ nodes, etc.)
+  - file_path input for reading actual metadata from file
 """
 
 import torch
@@ -19,13 +20,15 @@ import json
 import re
 
 
-class SimpleReadableMetadataFromPath:
+class SimpleReadableMetadataFromImage:
     """
-    Read metadata from an external file path input.
-    Use this when you want to connect a file path string from another node.
+    Read metadata from an external IMAGE input + file path.
     
-    Input: file_path (STRING) - path to the image file
-    Output: Same as original Simple Readable Metadata-SG
+    Use this when you want to:
+    1. Connect IMAGE from nodes like "Load Images From Folder (KJ)"
+    2. Pass the file path to read actual metadata
+    
+    The IMAGE input provides visual preview, file_path provides metadata.
     """
 
     CATEGORY = "image/analysis"
@@ -34,6 +37,7 @@ class SimpleReadableMetadataFromPath:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "image": ("IMAGE",),
                 "file_path": ("STRING", {"default": "", "multiline": False}),
                 "emoji_in_readable_text": ("BOOLEAN", {"default": True}),
                 "show_info": (["both", "properties", "metadata", "none"], {"default": "both"}),
@@ -42,7 +46,7 @@ class SimpleReadableMetadataFromPath:
 
     RETURN_TYPES = ("STRING", "IMAGE", "MASK", "STRING", "STRING", "STRING", "INT", "STRING")
     RETURN_NAMES = ("Simple_Readable_Metadata", "image", "mask", "metadata_raw", "Positive_Prompt", "Negative_Prompt", "seed", "file_name_text")
-    FUNCTION = "read_from_path"
+    FUNCTION = "read_from_image"
     OUTPUT_NODE = True
 
     def is_node_reference(self, value):
@@ -209,52 +213,62 @@ class SimpleReadableMetadataFromPath:
             print(f"Error extracting generation parameters: {e}")
         return params
 
-    def read_from_path(self, file_path, emoji_in_readable_text=True, show_info="both"):
-        """Read metadata from external file path"""
+    def read_from_image(self, image, file_path, emoji_in_readable_text=True, show_info="both"):
+        """
+        Read metadata from file_path, use IMAGE for visual output.
+        
+        Args:
+            image: IMAGE tensor (from KJ nodes, etc.) - used for visual output
+            file_path: Path to the original file - used for reading metadata
+        """
         try:
-            # Validate file path
-            if not file_path or not os.path.exists(file_path):
-                error_msg = f"File not found: {file_path}"
-                return (error_msg, torch.zeros(1, 512, 512, 3), torch.zeros(512, 512), error_msg, "", "", 0, "error")
+            # Default values
+            model_name = "N/A"
+            gen_params = {'seed': 'N/A', 'steps': 'N/A', 'cfg': 'N/A', 'sampler': 'N/A', 'scheduler': 'N/A'}
+            metadata_raw = "No file path provided"
+            positive = ""
+            negative = ""
+            seed_int = 0
+            file_name_text_without_ext = "unknown"
+            file_size_mb = 0.0
             
-            img = Image.open(file_path)
+            # Get image dimensions from tensor
+            batch_size, height, width, channels = image.shape
+            total_pixels = width * height
+            resolution_mp = float(total_pixels) / 1_000_000
             
-            model_name = self.extract_model_name(img)
-            gen_params = self.extract_generation_params(img)
-            
-            img = ImageOps.exif_transpose(img)
-            metadata_raw = self.extract_raw_metadata(img)
-            
-            if img.mode == 'I':
-                img = img.point(lambda i: i * (1 / 255))
-            
-            original_img = img
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            
-            image_tensor = torch.from_numpy(np.array(img).astype(np.float32) / 255.0).unsqueeze(0)
-            
-            if 'A' in original_img.getbands():
-                mask = np.array(original_img.getchannel('A')).astype(np.float32) / 255.0
-                mask = 1. - torch.from_numpy(mask)
-            else:
-                mask = torch.zeros((original_img.size[1], original_img.size[0]), dtype=torch.float32, device="cpu")
+            # Read metadata from file_path if provided
+            if file_path and os.path.exists(file_path):
+                try:
+                    img = Image.open(file_path)
+                    model_name = self.extract_model_name(img)
+                    gen_params = self.extract_generation_params(img)
+                    metadata_raw = self.extract_raw_metadata(img)
+                    
+                    try:
+                        file_size_bytes = os.path.getsize(file_path)
+                        file_size_mb = float(file_size_bytes) / (1024 * 1024)
+                        file_name_text_without_ext = os.path.splitext(os.path.basename(file_path))[0]
+                    except:
+                        pass
+                        
+                    # Parse metadata for prompts
+                    _, positive, negative = self.parse_metadata(metadata_raw, emoji_in_readable_text)
+                    
+                    # Convert seed
+                    seed_value = gen_params['seed']
+                    if seed_value != 'N/A' and seed_value is not None:
+                        try:
+                            seed_int = int(seed_value)
+                        except (ValueError, TypeError):
+                            seed_int = 0
+                            
+                except Exception as e:
+                    metadata_raw = f"Error reading file: {e}"
+            elif file_path:
+                metadata_raw = f"File not found: {file_path}"
             
             # Build display info
-            batch_size, height, width, channels = image_tensor.shape
-            total_pixels = width * height
-            resolution_mp = float(total_pixels / 1_000_000)
-            
-            try:
-                file_size_bytes = os.path.getsize(file_path)
-                file_size_mb = float(file_size_bytes) / (1024 * 1024)
-                self._current_image_path = os.path.basename(file_path)
-                self._current_file_size = file_size_mb
-                file_name_text_without_ext = os.path.splitext(os.path.basename(file_path))[0]
-            except:
-                file_size_mb = 0.0
-                file_name_text_without_ext = "unknown"
-            
             def gcd(a, b):
                 while b:
                     a, b = b, a % b
@@ -286,15 +300,6 @@ class SimpleReadableMetadataFromPath:
             aspect_ratio_decimal = width / height
             closest_standard = find_closest_standard_ratio(aspect_ratio_decimal)
             
-            self._last_width = width
-            self._last_height = height
-            self._last_resolution_mp = resolution_mp
-            self._last_width_ratio = width_ratio
-            self._last_height_ratio = height_ratio
-            self._last_aspect_ratio_decimal = aspect_ratio_decimal
-            self._last_closest_standard = closest_standard
-            self._last_file_size_mb = file_size_mb
-            
             lines = []
             line1 = f"{width}x{height} | {resolution_mp:.2f}MP "
             if closest_standard and closest_standard != f"{int(width_ratio)}:{int(height_ratio)}":
@@ -308,24 +313,19 @@ class SimpleReadableMetadataFromPath:
             lines.append(f"Seed: {gen_params['seed']} | Steps: {gen_params['steps']} | CFG: {gen_params['cfg']}")
             lines.append(f"Sampler: {gen_params['sampler']} | Scheduler: {gen_params['scheduler']}")
             
-            Simple_Readable_Metadata, positive, negative = self.parse_metadata(metadata_raw, emoji_in_readable_text)
+            Simple_Readable_Metadata, _, _ = self.parse_metadata(metadata_raw, emoji_in_readable_text)
             
-            seed_value = gen_params['seed']
-            if seed_value == 'N/A' or seed_value is None:
-                seed_int = 0
-            else:
-                try:
-                    seed_int = int(seed_value)
-                except (ValueError, TypeError):
-                    seed_int = 0
+            # Create mask from image alpha if present
+            # For now, return empty mask
+            mask = torch.zeros((height, width), dtype=torch.float32, device="cpu")
             
             return {
                 "ui": {"text": lines},
-                "result": (Simple_Readable_Metadata, image_tensor, mask, metadata_raw, positive, negative, seed_int, file_name_text_without_ext)
+                "result": (Simple_Readable_Metadata, image, mask, metadata_raw, positive, negative, seed_int, file_name_text_without_ext)
             }
         
         except Exception as e:
-            print(f"Error in read_from_path: {e}")
+            print(f"Error in read_from_image: {e}")
             raise
 
     def extract_raw_metadata(self, img):
@@ -361,22 +361,7 @@ class SimpleReadableMetadataFromPath:
                                 pass
             except Exception as e:
                 print(f"Error parsing WebP EXIF metadata: {e}")
-        if hasattr(img, 'getexif'):
-            try:
-                exif_data = img.getexif()
-                if exif_data:
-                    user_comment = exif_data.get(0x9286)
-                    if user_comment:
-                        if isinstance(user_comment, bytes):
-                            user_comment = user_comment.decode('utf-8', errors='ignore')
-                        try:
-                            json.loads(user_comment)
-                            return user_comment
-                        except:
-                            return user_comment
-            except Exception as e:
-                print(f"Error reading EXIF via getexif(): {e}")
-        return "No ComfyUI or WebUI format metadata found. Image may be from a different source."
+        return "No ComfyUI or WebUI format metadata found."
 
     def parse_metadata(self, metadata_raw, include_emojis=True):
         try:
@@ -388,12 +373,7 @@ class SimpleReadableMetadataFromPath:
             metadata_raw = self.safely_process_value(metadata_raw)
             format_type = self.detect_format(metadata_raw)
             if format_type == "comfyui":
-                Simple_Readable_Metadata = self.parse_comfyui_format(
-                    metadata_raw,
-                    include_emojis,
-                    image_path=getattr(self, '_current_image_path', None),
-                    file_size_mb=getattr(self, '_current_file_size', None)
-                )
+                Simple_Readable_Metadata = self.parse_comfyui_format(metadata_raw, include_emojis)
             elif format_type == "webui":
                 Simple_Readable_Metadata = self.parse_webui_format(metadata_raw, include_emojis)
             else:
@@ -422,7 +402,6 @@ class SimpleReadableMetadataFromPath:
                 return "webui"
             return "unknown"
         except Exception as e:
-            print(f"Error detecting format: {e}")
             return "unknown"
 
     def parse_webui_format(self, text, include_emojis=True):
@@ -441,7 +420,7 @@ class SimpleReadableMetadataFromPath:
             negative_prompt = ""
             metadata_line = ""
             
-            for i, line in enumerate(lines):
+            for line in lines:
                 if line.startswith("Negative prompt:"):
                     negative_prompt = line.replace("Negative prompt:", "").strip()
                 elif re.search(r'Steps:\s*\d+', line):
@@ -450,13 +429,7 @@ class SimpleReadableMetadataFromPath:
                     positive_prompt += line + " "
             
             positive_prompt = positive_prompt.strip()
-            model_name_display = "N/A"
-            if metadata_line:
-                model_match = re.search(r'Model:\s*([^,\n]+)', metadata_line)
-                if model_match:
-                    model_name_display = model_match.group(1).strip()
             
-            output.append(f"{emoji_map['models']} MODEL: {model_name_display}\n")
             output.append(f"{emoji_map['prompts']} PROMPTS:\n")
             output.append(f"  Positive:\n           {positive_prompt if positive_prompt else '(empty)'}\n")
             if negative_prompt:
@@ -470,8 +443,6 @@ class SimpleReadableMetadataFromPath:
                     'sampler': r'Sampler:\s*([^,]+)',
                     'cfg': r'CFG scale:\s*([\d.]+)',
                     'seed': r'Seed:\s*(\d+)',
-                    'size': r'Size:\s*(\d+x\d+)',
-                    'model': r'Model:\s*([^,]+)',
                 }
                 for key, pattern in patterns.items():
                     match = re.search(pattern, metadata_line)
@@ -479,21 +450,16 @@ class SimpleReadableMetadataFromPath:
                         params[key] = match.group(1).strip()
                 
                 output.append(f"{emoji_map['sampling']} SAMPLING SETTINGS:")
-                if 'seed' in params:
-                    output.append(f"  Seed: {params['seed']}")
-                if 'steps' in params:
-                    output.append(f"  Steps: {params['steps']}")
-                if 'cfg' in params:
-                    output.append(f"  CFG Scale: {params['cfg']}")
-                if 'sampler' in params:
-                    output.append(f"  Sampler: {params['sampler']}")
+                for key in ['seed', 'steps', 'cfg', 'sampler']:
+                    if key in params:
+                        output.append(f"  {key.capitalize()}: {params[key]}")
                 output.append("")
             
             return "\n".join(output)
         except Exception as e:
             return f"Error parsing WebUI metadata: {str(e)}"
 
-    def parse_comfyui_format(self, metadata_raw, include_emojis=True, image_path=None, file_size_mb=None):
+    def parse_comfyui_format(self, metadata_raw, include_emojis=True):
         try:
             metadata_raw = self.safely_process_value(metadata_raw)
             clean_text = metadata_raw.strip()
@@ -603,7 +569,7 @@ class SimpleReadableMetadataFromPath:
                             else:
                                 positive = text_content
                 except Exception as e:
-                    print(f"Error parsing JSON: {e}")
+                    pass
             elif format_type == "webui":
                 lines = text.strip().split('\n')
                 for line in lines:
@@ -613,17 +579,17 @@ class SimpleReadableMetadataFromPath:
                         positive += line + " "
                 positive = positive.strip()
         except Exception as e:
-            print(f"Error in extract_individual_params: {e}")
+            pass
         return positive, negative
 
 
 # Node registration
 NODE_CLASS_MAPPINGS = {
-    "SimpleReadableMetadataFromPath": SimpleReadableMetadataFromPath,
+    "SimpleReadableMetadataFromImage": SimpleReadableMetadataFromImage,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SimpleReadableMetadataFromPath": "Simple Readable Metadata (External Path)-SG",
+    "SimpleReadableMetadataFromImage": "Simple Readable Metadata (External Image)-SG",
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
