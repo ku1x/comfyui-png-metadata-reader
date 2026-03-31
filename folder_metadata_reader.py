@@ -53,7 +53,7 @@ class BatchSimpleReadableMetadata:
         }
 
     RETURN_TYPES = ("STRING", "STRING", "STRING", "INT")
-    RETURN_NAMES = ("all_metadata", "prompts_summary", "models_summary", "file_count")
+    RETURN_NAMES = ("Simple_Readable_Metadata", "all_metadata_json", "prompts_list", "file_count")
     FUNCTION = "read_folder"
     OUTPUT_NODE = True
 
@@ -155,11 +155,22 @@ class BatchSimpleReadableMetadata:
                 print(f"[BatchSimpleReadableMetadata] Error processing {filename}: {e}")
         
         # Build summary outputs
-        prompts_summary = self._build_prompts_summary(all_prompts)
-        models_summary = self._build_models_summary(all_models, all_seeds, len(files))
+        simple_readable = self._build_simple_readable_metadata(all_prompts, all_models, all_seeds, len(files))
+        prompts_list = self._build_prompts_list(all_prompts)
         all_metadata_json = json.dumps(all_metadata, indent=2, ensure_ascii=False)
         
-        return (all_metadata_json, prompts_summary, models_summary, len(files))
+        return (simple_readable, all_metadata_json, prompts_list, len(files))
+
+    def _build_prompts_list(self, all_prompts):
+        """Build a simple list of all prompts for easy copying."""
+        lines = []
+        for p in all_prompts:
+            lines.append(f"[{p['file']}]")
+            lines.append(p['positive'])
+            if p.get('negative'):
+                lines.append(f"Negative: {p['negative']}")
+            lines.append("")
+        return "\n".join(lines)
 
     def _parse_comfyui(self, prompt_data):
         """Parse ComfyUI workflow JSON."""
@@ -232,18 +243,23 @@ class BatchSimpleReadableMetadata:
         return positive, negative, seed, steps, cfg
 
     def _build_prompts_summary(self, all_prompts):
-        """Build human-readable prompts summary."""
+        """Build human-readable prompts summary (like original Simple Readable Metadata-SG)."""
         lines = []
-        lines.append("=" * 50)
-        lines.append("PROMPTS SUMMARY")
-        lines.append("=" * 50)
+        lines.append("=" * 60)
+        lines.append("BATCH METADATA READER - SIMPLE READABLE OUTPUT")
+        lines.append("=" * 60)
         lines.append("")
         
-        for p in all_prompts:
-            lines.append(f"[{p['file']}]")
-            lines.append(f"  Positive: {p['positive'][:300]}..." if len(p['positive']) > 300 else f"  Positive: {p['positive']}")
+        for i, p in enumerate(all_prompts, 1):
+            lines.append(f"--- IMAGE {i}: {p['file']} ---")
+            lines.append("")
+            lines.append("📝 POSITIVE PROMPT:")
+            lines.append(f"  {p['positive']}")
+            lines.append("")
             if p.get('negative'):
-                lines.append(f"  Negative: {p['negative'][:200]}..." if len(p['negative']) > 200 else f"  Negative: {p['negative']}")
+                lines.append("📝 NEGATIVE PROMPT:")
+                lines.append(f"  {p['negative']}")
+                lines.append("")
             lines.append("")
         
         return "\n".join(lines)
@@ -251,20 +267,72 @@ class BatchSimpleReadableMetadata:
     def _build_models_summary(self, all_models, all_seeds, file_count):
         """Build models and stats summary."""
         lines = []
-        lines.append("=" * 50)
+        lines.append("=" * 60)
         lines.append("STATISTICS")
-        lines.append("=" * 50)
+        lines.append("=" * 60)
         lines.append("")
         lines.append(f"Files processed: {file_count}")
         lines.append("")
         
-        lines.append("MODELS USED:")
+        lines.append("🧠 MODELS USED:")
         for m in sorted(all_models):
             lines.append(f"  - {m}")
         lines.append("")
         
         if all_seeds:
-            lines.append(f"Seeds range: {min(all_seeds)} - {max(all_seeds)}")
+            lines.append(f"🎯 Seeds range: {min(all_seeds)} - {max(all_seeds)}")
+        
+        return "\n".join(lines)
+    
+    def _build_simple_readable_metadata(self, all_prompts, all_models, all_seeds, file_count):
+        """Build the main Simple_Readable_Metadata output (like original SG format)."""
+        lines = []
+        lines.append("=" * 60)
+        lines.append("BATCH SIMPLE READABLE METADATA")
+        lines.append("=" * 60)
+        lines.append("")
+        lines.append(f"📊 Total images processed: {file_count}")
+        lines.append("")
+        
+        # Models section
+        if all_models:
+            lines.append("🧠 MODELS DETECTED:")
+            for m in sorted(all_models):
+                lines.append(f"  • {m}")
+            lines.append("")
+        
+        # Prompts section
+        lines.append("=" * 60)
+        lines.append("📝 ALL PROMPTS DETECTED IN WORKFLOW")
+        lines.append("=" * 60)
+        lines.append("")
+        
+        for i, p in enumerate(all_prompts, 1):
+            lines.append(f"─── IMAGE {i}: {p['file']} ───")
+            lines.append("")
+            lines.append("POSITIVE PROMPT:")
+            # Wrap long prompts
+            pos_lines = [p['positive'][j:j+80] for j in range(0, len(p['positive']), 80)]
+            for pl in pos_lines:
+                lines.append(f"  {pl}")
+            lines.append("")
+            
+            if p.get('negative'):
+                lines.append("NEGATIVE PROMPT:")
+                neg_lines = [p['negative'][j:j+80] for j in range(0, len(p['negative']), 80)]
+                for nl in neg_lines:
+                    lines.append(f"  {nl}")
+                lines.append("")
+            lines.append("")
+        
+        # Seeds summary
+        if all_seeds:
+            lines.append("=" * 60)
+            lines.append("🎯 SEEDS")
+            lines.append("=" * 60)
+            lines.append(f"  Range: {min(all_seeds)} - {max(all_seeds)}")
+            lines.append(f"  Count: {len(all_seeds)}")
+            lines.append("")
         
         return "\n".join(lines)
 
