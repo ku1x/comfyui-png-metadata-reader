@@ -43,7 +43,7 @@ class BatchMetadataReader:
         }
 
     RETURN_TYPES = ("STRING", "STRING", "STRING", "INT")
-    RETURN_NAMES = ("Simple_Readable_Metadata", "all_metadata_json", "prompts_list", "file_count")
+    RETURN_NAMES = ("Simple_Readable_Metadata", "all_detected_text_in_workflow", "all_metadata_json", "file_count")
     FUNCTION = "read_batch"
     OUTPUT_NODE = True
 
@@ -137,13 +137,13 @@ class BatchMetadataReader:
         # Build Simple_Readable_Metadata output (like original SG)
         simple_readable = self._build_simple_readable(positive_prompts, negative_prompts, models, loras, len(files))
         
-        # Build prompts list
-        prompts_list = self._build_prompts_list(positive_prompts, negative_prompts)
+        # Build all_detected_text_in_workflow (list format, one per image)
+        all_detected_text = self._build_all_detected_text(all_metadata)
 
         return (
             simple_readable,
+            all_detected_text,
             json.dumps(all_metadata, indent=2, ensure_ascii=False),
-            prompts_list,
             len(files)
         )
 
@@ -201,13 +201,53 @@ class BatchMetadataReader:
         
         return "\n".join(lines)
 
-    def _build_prompts_list(self, positive_prompts, negative_prompts):
-        """Build simple list of prompts."""
+    def _build_all_detected_text(self, all_metadata):
+        """Build all_detected_text_in_workflow output - list format, one per image."""
         lines = []
-        for p in positive_prompts:
-            lines.append(f"[{p['file']}]")
-            lines.append(p['text'])
+        lines.append("=" * 60)
+        lines.append("ALL DETECTED TEXT IN WORKFLOW")
+        lines.append("=" * 60)
+        lines.append("")
+        
+        for filename, data in all_metadata.items():
+            lines.append(f"{'='*60}")
+            lines.append(f"IMAGE: {filename}")
+            lines.append(f"{'='*60}")
             lines.append("")
+            
+            if "extracted" in data:
+                ext = data["extracted"]
+                
+                # Positive Prompt
+                if ext.get("positive_prompt"):
+                    lines.append("📝 POSITIVE PROMPT:")
+                    text = ext["positive_prompt"]
+                    for j in range(0, len(text), 80):
+                        lines.append(f"  {text[j:j+80]}")
+                    lines.append("")
+                
+                # Negative Prompt
+                if ext.get("negative_prompt"):
+                    lines.append("📝 NEGATIVE PROMPT:")
+                    text = ext["negative_prompt"]
+                    for j in range(0, len(text), 80):
+                        lines.append(f"  {text[j:j+80]}")
+                    lines.append("")
+                
+                # Other parameters
+                lines.append("📊 PARAMETERS:")
+                lines.append(f"  Seed: {ext.get('seed', 'N/A')}")
+                lines.append(f"  Steps: {ext.get('steps', 'N/A')}")
+                lines.append(f"  CFG: {ext.get('cfg', 'N/A')}")
+                lines.append(f"  Model: {ext.get('model_name', 'N/A')}")
+                lines.append("")
+            
+            elif "error" in data:
+                lines.append(f"❌ Error: {data['error']}")
+                lines.append("")
+            
+            lines.append("")
+        
         return "\n".join(lines)
 
     def _extract_values(self, workflow):
