@@ -202,10 +202,11 @@ class BatchMetadataReader:
         return "\n".join(lines)
 
     def _build_all_detected_text(self, all_metadata):
-        """Build all_detected_text_in_workflow output - list format, one per image."""
+        """Build all_detected_text_in_workflow output - matching original SG format."""
         lines = []
         lines.append("=" * 60)
         lines.append("ALL DETECTED TEXT IN WORKFLOW")
+        lines.append("(Fail-safe dump of all text-like values)")
         lines.append("=" * 60)
         lines.append("")
         
@@ -218,28 +219,46 @@ class BatchMetadataReader:
             if "extracted" in data:
                 ext = data["extracted"]
                 
-                # Positive Prompt
-                if ext.get("positive_prompt"):
-                    lines.append("📝 POSITIVE PROMPT:")
-                    text = ext["positive_prompt"]
-                    for j in range(0, len(text), 80):
-                        lines.append(f"  {text[j:j+80]}")
-                    lines.append("")
+                # Show all text content found in workflow
+                all_texts = ext.get("all_text_content", [])
                 
-                # Negative Prompt
-                if ext.get("negative_prompt"):
-                    lines.append("📝 NEGATIVE PROMPT:")
-                    text = ext["negative_prompt"]
-                    for j in range(0, len(text), 80):
-                        lines.append(f"  {text[j:j+80]}")
-                    lines.append("")
+                if all_texts:
+                    for i, text_item in enumerate(all_texts, 1):
+                        class_type = text_item.get("class_type", "Unknown")
+                        node_id = text_item.get("node_id", "?")
+                        text = text_item.get("text", "")
+                        
+                        lines.append(f"[{class_type} (ID {node_id})]")
+                        # Wrap text
+                        for j in range(0, len(text), 80):
+                            lines.append(f"  {text[j:j+80]}")
+                        lines.append("")
+                        lines.append("------")
+                        lines.append("")
+                else:
+                    # Fallback to positive/negative prompts
+                    if ext.get("positive_prompt"):
+                        lines.append("📝 POSITIVE PROMPT:")
+                        text = ext["positive_prompt"]
+                        for j in range(0, len(text), 80):
+                            lines.append(f"  {text[j:j+80]}")
+                        lines.append("")
+                    
+                    if ext.get("negative_prompt"):
+                        lines.append("📝 NEGATIVE PROMPT:")
+                        text = ext["negative_prompt"]
+                        for j in range(0, len(text), 80):
+                            lines.append(f"  {text[j:j+80]}")
+                        lines.append("")
                 
-                # Other parameters
+                # Parameters
                 lines.append("📊 PARAMETERS:")
                 lines.append(f"  Seed: {ext.get('seed', 'N/A')}")
                 lines.append(f"  Steps: {ext.get('steps', 'N/A')}")
                 lines.append(f"  CFG: {ext.get('cfg', 'N/A')}")
                 lines.append(f"  Model: {ext.get('model_name', 'N/A')}")
+                if ext.get("loras"):
+                    lines.append(f"  LoRAs: {', '.join(ext['loras'])}")
                 lines.append("")
             
             elif "error" in data:
@@ -251,6 +270,7 @@ class BatchMetadataReader:
         return "\n".join(lines)
 
     def _extract_values(self, workflow):
+        """Extract values from ComfyUI workflow JSON - matching original SG format."""
         result = {
             "positive_prompt": "",
             "negative_prompt": "",
@@ -258,45 +278,106 @@ class BatchMetadataReader:
             "steps": 0,
             "cfg": 0.0,
             "model_name": "",
-            "loras": []
+            "loras": [],
+            "all_text_content": []  # New: all text content for fail-safe
         }
+        
+        positive_candidates = []
+        negative_candidates = []
+        negative_keywords = ["watermark", "bad anatomy", "ugly", "deformed", "disfigured", "blurry", "low quality", "worst quality"]
+        seen_texts = set()
+        
         try:
             for node_id, node_data in workflow.items():
                 class_type = node_data.get("class_type", "")
                 inputs = node_data.get("inputs", {})
 
+                # KSampler - sampling parameters
                 if "KSampler" in class_type:
                     result["seed"] = inputs.get("seed", inputs.get("noise_seed", 0))
                     result["steps"] = inputs.get("steps", 0)
                     result["cfg"] = inputs.get("cfg", 0.0)
 
-                if class_type == "CLIPTextEncode":
-                    text = inputs.get("text", "")
-                    if text:
-                        if not result["positive_prompt"]:
-                            result["positive_prompt"] = text
-                        elif text != result["positive_prompt"]:
-                            result["negative_prompt"] = text
-
-                if "PrimitiveString" in class_type:
-                    text = inputs.get("value", inputs.get("text", ""))
-                    if text and len(text) > 10:
-                        if not result["positive_prompt"]:
-                            result["positive_prompt"] = text
-                        elif text != result["positive_prompt"]:
-                            result["negative_prompt"] = text
-
+                # Model loaders
                 if "CheckpointLoader" in class_type:
                     result["model_name"] = inputs.get("ckpt_name", "")
                 elif "UNETLoader" in class_type:
                     result["model_name"] = inputs.get("unet_name", "")
 
-                if "LoraLoader" in class_type:
+                # LoRA loaders
+                if "LoraLoader" in class_type or "lora" in class_type.lower():
                     lora_name = inputs.get("lora_name", inputs.get("lora", ""))
                     if lora_name:
                         result["loras"].append(lora_name)
-        except Exception:
-            pass
+
+                # Text encoding nodes - extract ALL text content
+                if "CLIPTextEncode" in class_type or "TextEncode" in class_type or "Prompt" in class_type:
+                    title = node_data.get("_meta", {}).get("title", "").lower()
+                    text = inputs.get("text", "")
+                    
+                    # Skip node references
+                    if isinstance(text, list) and len(text) == 2:
+                        continue
+                    
+                    if text and isinstance(text, str) and text.strip():
+                        # Add to all_text_content
+                        if text not in seen_texts:
+                            seen_texts.add(text)
+                            result["all_text_content"].append({
+                                "node_id": node_id,
+                                "class_type": class_type,
+                                "text": text
+                            })
+                        
+                        # Determine positive/negative
+                        is_negative_title = "negative" in title or "neg" in title
+                        is_positive_title = "positive" in title or "pos" in title
+                        is_negative_content = any(kw in text.lower() for kw in negative_keywords)
+                        
+                        is_negative = is_negative_title or (is_negative_content and not is_positive_title)
+                        
+                        if is_negative:
+                            negative_candidates.append(text)
+                        else:
+                            positive_candidates.append(text)
+
+                # PrimitiveString nodes - also extract text
+                if "PrimitiveString" in class_type:
+                    text = inputs.get("value", inputs.get("text", ""))
+                    if text and isinstance(text, str) and text.strip():
+                        if text not in seen_texts:
+                            seen_texts.add(text)
+                            result["all_text_content"].append({
+                                "node_id": node_id,
+                                "class_type": class_type,
+                                "text": text
+                            })
+                        
+                        if len(text) > 10:
+                            if not result["positive_prompt"]:
+                                positive_candidates.append(text)
+
+                # Any other nodes with text/string inputs
+                for key in ["text", "string", "prompt", "value", "positive", "negative"]:
+                    if key in inputs:
+                        val = inputs[key]
+                        if val and isinstance(val, str) and val.strip() and val not in seen_texts:
+                            seen_texts.add(val)
+                            result["all_text_content"].append({
+                                "node_id": node_id,
+                                "class_type": class_type,
+                                "text": val
+                            })
+                            
+        except Exception as e:
+            print(f"[BatchMetadataReader] Error extracting values: {e}")
+        
+        # Set final prompts
+        if positive_candidates:
+            result["positive_prompt"] = positive_candidates[0]
+        if negative_candidates:
+            result["negative_prompt"] = negative_candidates[0]
+            
         return result
 
 
